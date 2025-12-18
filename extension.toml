@@ -1,0 +1,9 @@
+id = "unity-engine"
+name = "Unity Engine"
+version = "0.1.0"
+schema_version = 1
+authors = ["namey5@hotmail.com"]
+description = "Debugging support for the Unity game engine via UnityDAP."
+repository = "https://github.com/Namey5/zed-unity-extension"
+
+[debug_adapters.UnityDAP]

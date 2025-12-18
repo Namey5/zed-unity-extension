@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "port"
+  ],
+  "properties": {
+    "monoPath": {
+      "type": "string",
+      "description": "Path to the Mono C# runtime executable (i.e. `mono.exe` on Windows). This will default to assuming `Mono/bin` is in $PATH.",
+      "default": "mono"
+    },
+    "logLevel": {
+      "type": "string",
+      "enum": [
+        "trace",
+        "debug",
+        "info",
+        "warn",
+        "error",
+        "critical",
+        "none"
+      ],
+      "default": "warn"
+    },
+    "address": {
+      "type": "string",
+      "description": "IPv4 address of the running Unity instance to debug.",
+      "default": "127.0.0.1"
+    },
+    "port": {
+      "type": "number",
+      "description": "Open debugging port that Unity is listening on."
+    }
+  }
+}
