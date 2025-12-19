@@ -10,6 +10,9 @@ Adds debugging support for the [Unity game engine](https://unity.com/) to [Zed](
 > [!WARNING]
 > The version of Mono that ships with Unity [will not work](https://github.com/walcht/neovim-unity#unity-debugger-support).
 
+## Installation
+Currently only supported as a dev extension; see [Developing an Extension Locally](https://zed.dev/docs/extensions/developing-extensions#developing-an-extension-locally).
+
 ## Configuration
 To connect to a running Unity instance on the same machine as the debugger you can use Zed's `Attach` dialog,
 set the debugger to `UnityDAP` (bottom right) and select the desired process:
