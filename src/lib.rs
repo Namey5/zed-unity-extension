@@ -3,11 +3,11 @@ use zed_extension_api as zed;
 
 zed::register_extension!(UnityEngineExtension);
 
-pub const DEBUG_ADAPTER_NAME: &str = "UnityDAP";
-pub const UNITY_DAP_GITHUB: &str = "walcht/unity-dap";
-pub const UNITY_DAP_ASSET_NAME: &str = "unity-debug-adapter.zip";
-pub const UNITY_DAP_DIR_NAME: &str = "unity-debug-adapter";
-pub const UNITY_DAP_BINARY_NAME: &str = "unity-debug-adapter";
+const DEBUG_ADAPTER_NAME: &str = "UnityDAP";
+const UNITY_DAP_GITHUB: &str = "walcht/unity-dap";
+const UNITY_DAP_ASSET_NAME: &str = "unity-debug-adapter.zip";
+const UNITY_DAP_DIR_NAME: &str = "unity-debug-adapter";
+const UNITY_DAP_BINARY_NAME: &str = "unity-debug-adapter";
 
 #[derive(Default)]
 struct UnityEngineExtension {
@@ -79,21 +79,8 @@ impl zed::Extension for UnityEngineExtension {
             ));
         }
 
-        let (platform, _arch) = zed::current_platform();
-
         let dap_config = serde_json::from_str::<serde_json::Value>(&config.config)
             .map_err(|err| format!("failed to parse config: {}", err))?;
-        let mono_path = dap_config
-            .get("monoPath")
-            .and_then(|value| value.as_str().map(ToString::to_string))
-            .or_else(|| {
-                worktree
-                    .shell_env()
-                    .iter()
-                    .find(|(var, _)| var.eq_ignore_ascii_case("MONO_PATH"))
-                    .map(|(_, path)| path.clone())
-            })
-            .ok_or_else(|| format!("monoPath was not provided"))?;
         let log_level = dap_config
             .get("logLevel")
             .and_then(|value| value.as_str())
@@ -102,6 +89,20 @@ impl zed::Extension for UnityEngineExtension {
             } else {
                 "warn"
             });
+        let mono_path = dap_config
+            .get("monoPath")
+            .and_then(|value| value.as_str().map(ToString::to_string))
+            // HACK: DebugAdapterBinary::command has to be an explicit path for security reasons,
+            //       but currently there is no way for a user to provide custom config when launching
+            //       via the "attach" dialog so can only pull from environment variables.
+            .or_else(|| {
+                worktree
+                    .shell_env()
+                    .iter()
+                    .find(|(var, _)| var.eq_ignore_ascii_case("MONO_PATH"))
+                    .map(|(_, path)| path.clone())
+            })
+            .ok_or_else(|| format!("monoPath was not provided"))?;
         // Connection info for the Unity session to debug:
         let address = dap_config
             .get("address")
@@ -121,100 +122,9 @@ impl zed::Extension for UnityEngineExtension {
             .and_then(|port| u16::try_from(port).ok())
             .ok_or_else(|| format!("must provide a valid port"))?;
 
-        let unity_dap_binary = if let Some(binary_path) = user_provided_debug_adapter_path {
-            binary_path
-        } else {
-            let binary_path = 'b: {
-                let release = zed::latest_github_release(
-                    UNITY_DAP_GITHUB,
-                    zed::GithubReleaseOptions {
-                        require_assets: true,
-                        pre_release: false,
-                    },
-                )
-                .map_err(|err| {
-                    format!(
-                        "failed to fetch latest github release of unity-debug-adapter: {}",
-                        err
-                    )
-                })?;
-
-                if let Some(binary) = &self.cached_dap_binary {
-                    if &binary.version >= &release.version {
-                        break 'b binary.path.clone();
-                    }
-                }
-
-                let version_dir = format!("{}-{}", UNITY_DAP_DIR_NAME, release.version);
-                let binary_name = format!("{}.{}",
-                    UNITY_DAP_BINARY_NAME,
-                    match platform {
-                        zed::Os::Windows => "exe",
-                        _ => return Err("automatic download of unity-debug-adapter is currently only supported on windows".into()),
-                    },
-                );
-
-                let cwd = std::env::current_dir()
-                    .map_err(|err| format!("failed to read working directory: {}", err))?;
-                let mut existing_versions = std::fs::read_dir(&cwd)
-                    .map_err(|err| format!("failed to read working directory: {}", err))?
-                    .filter_map(|dir| {
-                        dir.ok().filter(|dir| {
-                            dir.file_name()
-                                .to_str()
-                                .filter(|name| name.starts_with(UNITY_DAP_DIR_NAME))
-                                .is_some()
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                existing_versions.sort_by(|a, b| {
-                    a.file_name()
-                        .to_str()
-                        .unwrap()
-                        .cmp(b.file_name().to_str().unwrap())
-                });
-                if let Some(latest_existing) = existing_versions.last() {
-                    if latest_existing.file_name().to_str().unwrap() >= &version_dir {
-                        let mut path = latest_existing.path();
-                        path.extend(["Release", &binary_name]);
-                        break 'b path.to_string_lossy().to_string();
-                    }
-                }
-
-                let asset = release
-                    .assets
-                    .into_iter()
-                    .find(|asset| asset.name == UNITY_DAP_ASSET_NAME)
-                    .ok_or_else(|| {
-                        format!("failed to find a valid build of unity-debug-adapter")
-                    })?;
-                zed::download_file(
-                    &asset.download_url,
-                    &version_dir,
-                    zed::DownloadedFileType::Zip,
-                )
-                .map_err(|err| format!("failed to download unity-debug-adapter: {}", err))?;
-
-                let mut binary_path = cwd;
-                binary_path.extend([&version_dir, "Release", &binary_name]);
-                let binary_path = binary_path.to_string_lossy().to_string();
-                zed::make_file_executable(&binary_path)
-                    .map_err(|err| format!("failed to make {} executable: {}", binary_path, err))?;
-                self.cached_dap_binary = Some(UnityDapBinary {
-                    version: release.version,
-                    path: binary_path.clone(),
-                });
-                binary_path
-            };
-
-            if !std::fs::exists(&binary_path).unwrap_or(false) {
-                return Err(format!(
-                    "unity-debug-adapter does not exist at expected path: {}",
-                    binary_path
-                ));
-            }
-
-            binary_path
+        let unity_dap_binary = match user_provided_debug_adapter_path {
+            Some(path) => path,
+            None => self.get_unity_dap_binary()?,
         };
 
         Ok(zed::DebugAdapterBinary {
@@ -232,5 +142,115 @@ impl zed::Extension for UnityEngineExtension {
                 request: self.dap_request_kind(adapter_name, dap_config)?,
             },
         })
+    }
+}
+
+impl UnityEngineExtension {
+    fn get_unity_dap_binary(self: &mut Self) -> Result<String, String> {
+        let (platform, _arch) = zed::current_platform();
+
+        let release = zed::latest_github_release(
+            UNITY_DAP_GITHUB,
+            zed::GithubReleaseOptions {
+                require_assets: true,
+                pre_release: false,
+            },
+        )
+        .map_err(|err| {
+            format!(
+                "failed to fetch latest github release of unity-debug-adapter: {}",
+                err
+            )
+        })?;
+
+        if let Some(cached) = &self.cached_dap_binary {
+            if &cached.version >= &release.version {
+                return Ok(cached.path.clone());
+            }
+        }
+
+        let version_dir = format!("{}-{}", UNITY_DAP_DIR_NAME, release.version);
+        let binary_name = format!(
+            "{}.{}",
+            UNITY_DAP_BINARY_NAME,
+            match platform {
+                zed::Os::Windows => "exe",
+                _ =>
+                    return Err(format!(
+                        "automatic download of unity-debug-adapter is currently only supported on windows"
+                    )),
+            },
+        );
+
+        let cwd = std::env::current_dir()
+            .map_err(|err| format!("failed to open working directory: {}", err))?;
+        // Find all existing versions of unity-debug-adapter.
+        let mut existing_versions = std::fs::read_dir(&cwd)
+            .map_err(|err| format!("failed to read working directory: {}", err))?
+            .filter_map(|dir| {
+                dir.ok().filter(|dir| {
+                    dir.file_name()
+                        .to_str()
+                        .filter(|name| name.starts_with(UNITY_DAP_DIR_NAME))
+                        .is_some()
+                })
+            })
+            .collect::<Vec<_>>();
+        // These should be named by version, so sort in ascending order.
+        existing_versions.sort_by(|a, b| {
+            a.file_name()
+                .to_str()
+                .unwrap()
+                .cmp(b.file_name().to_str().unwrap())
+        });
+        // Compare with the latest existing version and use that if it is the same or newer.
+        if let Some(latest_existing) = existing_versions.last() {
+            if latest_existing.file_name().to_str().unwrap() >= &version_dir {
+                let mut path = latest_existing.path();
+                path.extend(["Release", &binary_name]);
+                let binary_path = path.to_string_lossy().to_string();
+                return if std::fs::exists(&binary_path).unwrap_or(false) {
+                    Ok(binary_path)
+                } else {
+                    Err(format!(
+                        "unity-debug-adapter does not exist at expected path: {}",
+                        binary_path
+                    ))
+                };
+            }
+        }
+
+        let asset = release
+            .assets
+            .into_iter()
+            .find(|asset| asset.name == UNITY_DAP_ASSET_NAME)
+            .ok_or_else(|| format!("failed to find a valid build of unity-debug-adapter"))?;
+        zed::download_file(
+            &asset.download_url,
+            &version_dir,
+            zed::DownloadedFileType::Zip,
+        )
+        .map_err(|err| format!("failed to download unity-debug-adapter: {}", err))?;
+
+        // Need the absolute path.
+        let mut binary_path = cwd;
+        binary_path.extend([&version_dir, "Release", &binary_name]);
+        let binary_path = binary_path.to_string_lossy().to_string();
+        if !std::fs::exists(&binary_path).unwrap_or(false) {
+            return Err(format!(
+                "unity-debug-adapter does not exist at expected path: {}",
+                binary_path
+            ));
+        }
+
+        zed::make_file_executable(&binary_path)
+            .map_err(|err| format!("failed to make {} executable: {}", binary_path, err))?;
+
+        self.cached_dap_binary = Some(UnityDapBinary {
+            version: release.version,
+            path: binary_path.clone(),
+        });
+
+        Ok(binary_path)
     }
 }
