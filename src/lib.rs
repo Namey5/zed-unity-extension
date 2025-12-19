@@ -41,9 +41,10 @@ impl zed::Extension for UnityEngineExtension {
         &mut self,
         config: zed::DebugConfig,
     ) -> zed::Result<zed::DebugScenario, String> {
-        let request = match config.request {
-            zed::DebugRequest::Attach(request) => request,
-            _ => return Err("UnityDAP only supports attaching to running processes".into()),
+        let zed::DebugRequest::Attach(request) = config.request else {
+            return Err(format!(
+                "UnityDAP only supports attaching to running processes"
+            ));
         };
 
         Ok(zed::DebugScenario {
@@ -170,17 +171,12 @@ impl UnityEngineExtension {
         }
 
         let version_dir = format!("{}-{}", UNITY_DAP_DIR_NAME, release.version);
-        let binary_name = format!(
-            "{}.{}",
-            UNITY_DAP_BINARY_NAME,
-            match platform {
-                zed::Os::Windows => "exe",
-                _ =>
-                    return Err(format!(
-                        "automatic download of unity-debug-adapter is currently only supported on windows"
-                    )),
-            },
-        );
+        let binary_name = match platform {
+            zed::Os::Windows => Ok(format!("{}.{}", UNITY_DAP_BINARY_NAME, "exe")),
+            _ => Err(format!(
+                "automatic download of unity-debug-adapter is currently only supported on windows"
+            )),
+        }?;
 
         let cwd = std::env::current_dir()
             .map_err(|err| format!("failed to open working directory: {}", err))?;
