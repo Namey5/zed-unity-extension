@@ -161,13 +161,11 @@ impl UnityEngineExtension {
             )
         })?;
 
-        if let Some(cached) = &self.cached_dap_binary {
-            if &cached.version >= &release.version {
-                return Ok(cached.path.clone());
-            }
+        if let Some(cached) = &self.cached_dap_binary
+            && cached.version >= release.version
+        {
+            return Ok(cached.path.clone());
         }
-
-        let version_dir = format!("{}-{}", UNITY_DAP_DIR_NAME, release.version);
 
         let cwd = std::env::current_dir()
             .map_err(|err| format!("failed to open working directory: {}", err))?;
@@ -175,49 +173,38 @@ impl UnityEngineExtension {
         let mut existing_versions = std::fs::read_dir(&cwd)
             .map_err(|err| format!("failed to read working directory: {}", err))?
             .filter_map(|dir| {
-                dir.ok().filter(|dir| {
+                dir.ok().and_then(|dir| {
                     dir.file_name()
                         .to_str()
                         .filter(|name| name.starts_with(UNITY_DAP_DIR_NAME))
-                        .is_some()
+                        .map(|name| name.to_string())
                 })
             })
             .collect::<Vec<_>>();
         // These should be named by version, so sort in ascending order.
-        existing_versions.sort_by(|a, b| {
-            a.file_name()
-                .to_str()
-                .unwrap()
-                .cmp(b.file_name().to_str().unwrap())
-        });
-        // Compare with the latest existing version and use that if it is the same or newer.
-        if let Some(latest_existing) = existing_versions.last() {
-            if latest_existing.file_name().to_str().unwrap() >= &version_dir {
-                let mut path = latest_existing.path();
-                path.extend(["Release", UNITY_DAP_BINARY_NAME]);
-                let binary_path = path.to_string_lossy().to_string();
-                return if std::fs::exists(&binary_path).unwrap_or(false) {
-                    Ok(binary_path)
-                } else {
-                    Err(format!(
-                        "unity-debug-adapter does not exist at expected path: {}",
-                        binary_path
-                    ))
-                };
-            }
-        }
+        existing_versions.sort_by(String::cmp);
 
-        let asset = release
-            .assets
-            .into_iter()
-            .find(|asset| asset.name == UNITY_DAP_ASSET_NAME)
-            .ok_or_else(|| format!("failed to find a valid build of unity-debug-adapter"))?;
-        zed::download_file(
-            &asset.download_url,
-            &version_dir,
-            zed::DownloadedFileType::Zip,
-        )
-        .map_err(|err| format!("failed to download unity-debug-adapter: {}", err))?;
+        let version_dir = format!("{}-{}", UNITY_DAP_DIR_NAME, release.version);
+        // Compare with the latest existing version and use that if it is the same or newer.
+        let version_dir = if let Some(latest_existing) = existing_versions.into_iter().last()
+            && latest_existing >= version_dir
+        {
+            latest_existing
+        } else {
+            let asset = release
+                .assets
+                .into_iter()
+                .find(|asset| asset.name == UNITY_DAP_ASSET_NAME)
+                .ok_or_else(|| format!("failed to find a valid build of unity-debug-adapter"))?;
+            zed::download_file(
+                &asset.download_url,
+                &version_dir,
+                zed::DownloadedFileType::Zip,
+            )
+            .map_err(|err| format!("failed to download unity-debug-adapter: {}", err))?;
+
+            version_dir
+        };
 
         // Need the absolute path.
         let mut binary_path = cwd;
@@ -229,9 +216,6 @@ impl UnityEngineExtension {
                 binary_path
             ));
         }
-
-        zed::make_file_executable(&binary_path)
-            .map_err(|err| format!("failed to make {} executable: {}", binary_path, err))?;
 
         self.cached_dap_binary = Some(UnityDapBinary {
             version: release.version,
