@@ -2,13 +2,13 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "required": [
+    "monoPath",
     "port"
   ],
   "properties": {
     "monoPath": {
       "type": "string",
-      "description": "Path to the Mono C# runtime executable (i.e. `mono.exe` on Windows). This will default to assuming `Mono/bin` is in $PATH.",
-      "default": "mono"
+      "description": "Path to the Mono C# runtime executable (eg. `mono.exe` on Windows) - this will default to the MONO_PATH environment variable (if set)."
     },
     "logLevel": {
       "type": "string",
@@ -30,7 +30,7 @@
     },
     "port": {
       "type": "number",
-      "description": "Open debugging port that Unity is listening on."
+      "description": "Open debugging port that Unity is listening on - this will be automatically determined from the process id (if provided)."
     }
   }
 }
