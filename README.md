@@ -14,15 +14,35 @@ Adds debugging support for the [Unity game engine](https://unity.com/) to [Zed](
 Currently only supported as a dev extension; see [Developing an Extension Locally](https://zed.dev/docs/extensions/developing-extensions#developing-an-extension-locally).
 
 ## Configuration
+You need to explicitly tell the extension where to find the Mono runtime binary (i.e. `mono.exe`) -
+this can be done in a debug task or by overriding the DAP binary in `settings.json`:
+```json
+{
+  "dap": {
+    "UnityDAP": {
+      "binary": "C:\\Program Files\\Mono\\bin\\mono.exe"
+    }
+  }
+}
+```
+
+> [!NOTE]
+> There is currently no way to override the `unity-dap` binary from within Zed,
+> however it will automatically look for the latest version present in the extension's working directory
+> (i.e. `%LOCALAPPDATA%\Zed\extensions\work\unity-engine` on Windows) - if you want to use a custom version of `unity-dap`
+> then all you need to do is drop the build into this folder and name it with a higher precedence than the other installs, eg:
+> ```
+> %LOCALAPPDATA%\Zed\extensions\work\unity-engine\
+> | unity-debug-adapter-v0.0.1\    # Automatically fetched Github release.
+> | | Release\...
+> | unity-debug-adapter-v1.0.0\    # Custom build - higher version will be prioritised.
+> | | Release\unity-debug-adapter.exe
+> ```
+
 To connect to a running Unity instance on the same machine as the debugger you can use Zed's `Attach` dialog,
 set the debugger to `UnityDAP` (bottom right) and select the desired process:
 
 <img width="644" height="591" alt="image" src="https://github.com/user-attachments/assets/7a168a3d-9810-4f4f-8886-abdcb05ba6c4" />
-
-> [!WARNING]
-> You need to explicitly tell the extension where to find the Mono runtime binary (i.e. `mono.exe`),
-> however there is currently no way to provide this directly due to limitations in Zed's extension API.
-> As a workaround, you can assign the absolute path to the `MONO_PATH` environment variable.
 
 Otherwise, you can add a new debug task and explicitly supply the address and port to connect to:
 

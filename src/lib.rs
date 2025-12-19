@@ -7,7 +7,7 @@ const DEBUG_ADAPTER_NAME: &str = "UnityDAP";
 const UNITY_DAP_GITHUB: &str = "walcht/unity-dap";
 const UNITY_DAP_ASSET_NAME: &str = "unity-debug-adapter.zip";
 const UNITY_DAP_DIR_NAME: &str = "unity-debug-adapter";
-const UNITY_DAP_BINARY_NAME: &str = "unity-debug-adapter";
+const UNITY_DAP_BINARY_NAME: &str = "unity-debug-adapter.exe";
 
 #[derive(Default)]
 struct UnityEngineExtension {
@@ -80,8 +80,23 @@ impl zed::Extension for UnityEngineExtension {
             ));
         }
 
+        let (platform, _arch) = zed::current_platform();
+
         let dap_config = serde_json::from_str::<serde_json::Value>(&config.config)
             .map_err(|err| format!("failed to parse config: {}", err))?;
+
+        let mono_path = dap_config
+            .get("monoPath")
+            .and_then(|value| value.as_str().map(ToString::to_string))
+            .or(user_provided_debug_adapter_path)
+            .unwrap_or(
+                match platform {
+                    zed::Os::Windows => "mono.exe",
+                    _ => "mono",
+                }
+                .to_string(),
+            );
+
         let log_level = dap_config
             .get("logLevel")
             .and_then(|value| value.as_str())
@@ -90,20 +105,7 @@ impl zed::Extension for UnityEngineExtension {
             } else {
                 "warn"
             });
-        let mono_path = dap_config
-            .get("monoPath")
-            .and_then(|value| value.as_str().map(ToString::to_string))
-            // HACK: DebugAdapterBinary::command has to be an explicit path for security reasons,
-            //       but currently there is no way for a user to provide custom config when launching
-            //       via the "attach" dialog so can only pull from environment variables.
-            .or_else(|| {
-                worktree
-                    .shell_env()
-                    .iter()
-                    .find(|(var, _)| var.eq_ignore_ascii_case("MONO_PATH"))
-                    .map(|(_, path)| path.clone())
-            })
-            .ok_or_else(|| format!("monoPath was not provided"))?;
+
         // Connection info for the Unity session to debug:
         let address = dap_config
             .get("address")
@@ -123,10 +125,7 @@ impl zed::Extension for UnityEngineExtension {
             .and_then(|port| u16::try_from(port).ok())
             .ok_or_else(|| format!("must provide a valid port"))?;
 
-        let unity_dap_binary = match user_provided_debug_adapter_path {
-            Some(path) => path,
-            None => self.get_unity_dap_binary()?,
-        };
+        let unity_dap_binary = self.get_unity_dap_binary()?;
 
         Ok(zed::DebugAdapterBinary {
             command: Some(mono_path),
@@ -148,8 +147,6 @@ impl zed::Extension for UnityEngineExtension {
 
 impl UnityEngineExtension {
     fn get_unity_dap_binary(self: &mut Self) -> Result<String, String> {
-        let (platform, _arch) = zed::current_platform();
-
         let release = zed::latest_github_release(
             UNITY_DAP_GITHUB,
             zed::GithubReleaseOptions {
@@ -171,12 +168,6 @@ impl UnityEngineExtension {
         }
 
         let version_dir = format!("{}-{}", UNITY_DAP_DIR_NAME, release.version);
-        let binary_name = match platform {
-            zed::Os::Windows => Ok(format!("{}.{}", UNITY_DAP_BINARY_NAME, "exe")),
-            _ => Err(format!(
-                "automatic download of unity-debug-adapter is currently only supported on windows"
-            )),
-        }?;
 
         let cwd = std::env::current_dir()
             .map_err(|err| format!("failed to open working directory: {}", err))?;
@@ -203,7 +194,7 @@ impl UnityEngineExtension {
         if let Some(latest_existing) = existing_versions.last() {
             if latest_existing.file_name().to_str().unwrap() >= &version_dir {
                 let mut path = latest_existing.path();
-                path.extend(["Release", &binary_name]);
+                path.extend(["Release", UNITY_DAP_BINARY_NAME]);
                 let binary_path = path.to_string_lossy().to_string();
                 return if std::fs::exists(&binary_path).unwrap_or(false) {
                     Ok(binary_path)
@@ -230,7 +221,7 @@ impl UnityEngineExtension {
 
         // Need the absolute path.
         let mut binary_path = cwd;
-        binary_path.extend([&version_dir, "Release", &binary_name]);
+        binary_path.extend([&version_dir, "Release", UNITY_DAP_BINARY_NAME]);
         let binary_path = binary_path.to_string_lossy().to_string();
         if !std::fs::exists(&binary_path).unwrap_or(false) {
             return Err(format!(
