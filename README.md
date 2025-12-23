@@ -2,8 +2,8 @@
 Adds debugging support for the [Unity game engine](https://unity.com/) to [Zed](https://zed.dev/) via [unity-dap](https://github.com/walcht/unity-dap).
 
 > [!CAUTION]
-> This extension can connect to a running Unity instance, but I have not been able to get debugging working yet (on Windows 11).
-> This may be due to upstream issues in `unity-dap`, but feel free to try and see if it works for you.
+> This extension can connect to a running Unity instance, but due to an [upstream issue in `unity-dap`](https://github.com/walcht/unity-dap/issues/5#issuecomment-3681445845)
+> debugging currently does not work on Windows with the latest Mono runtime.
 
 ## Requirements
 `unity-dap` requires an explicit installation of [Mono](https://www.mono-project.com/download/stable/).
